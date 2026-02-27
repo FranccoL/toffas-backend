@@ -11,7 +11,7 @@ export async function criarPedido(req, res) {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // 1️⃣ Cliente
+    // Cliente
     const [existe] = await connection.query(
       "SELECT id FROM clientes WHERE email = ?",
       [cliente.email]
@@ -40,7 +40,7 @@ export async function criarPedido(req, res) {
       clienteId = clienteResult.insertId;
     }
 
-    // 2️⃣ Subtotal
+    // Subtotal
     let subtotal = 0;
     const produtosParaMP = [];
 
@@ -64,7 +64,7 @@ export async function criarPedido(req, res) {
 
     const total = subtotal + frete;
 
-    // 3️⃣ Criar pedido no banco
+    // Criar pedido no banco
     const [pedidoResult] = await connection.query(
       `INSERT INTO pedidos 
        (cliente_id, subtotal, frete, total, status)
@@ -74,7 +74,7 @@ export async function criarPedido(req, res) {
 
     const pedidoId = pedidoResult.insertId;
 
-    // 4️⃣ Inserir itens no pedido
+    // Inserir itens no pedido
     for (const item of itens) {
       const [produtoRes] = await connection.query(
         "SELECT nome, preco FROM produtos WHERE id = ?",
@@ -97,7 +97,7 @@ export async function criarPedido(req, res) {
       );
     }
 
-    // 5️⃣ Criar preference no Mercado Pago
+   
     const mpPreference = {
       items: produtosParaMP,
       payer: {

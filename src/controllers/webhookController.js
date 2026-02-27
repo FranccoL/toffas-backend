@@ -3,9 +3,9 @@ import axios from "axios";
 import { enviarEmailRastreio } from "../services/emailService.js";
 
 
-// ======================================================
+
 // FUNÇÃO: CRIAR ENVIO NO MELHOR ENVIO
-// ======================================================
+
 async function criarEnvioMelhorEnvio(pedidoId) {
   try {
 
@@ -113,9 +113,9 @@ async function criarEnvioMelhorEnvio(pedidoId) {
 }
 
 
-// ======================================================
+
 // CRIAR PEDIDO
-// ======================================================
+
 export async function criarPedido(req, res) {
 
   
@@ -128,9 +128,8 @@ export async function criarPedido(req, res) {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // ===============================
+    
     // CLIENTE
-    // ===============================
     const [existe] = await connection.query(
       "SELECT id FROM clientes WHERE email = ?",
       [cliente.email]
@@ -160,9 +159,9 @@ export async function criarPedido(req, res) {
       clienteId = clienteResult.insertId;
     }
 
-    // ===============================
+    
     // SUBTOTAL
-    // ===============================
+    
     let subtotal = 0;
 
     for (const item of itens) {
@@ -180,9 +179,9 @@ export async function criarPedido(req, res) {
 
     subtotal = Number(subtotal.toFixed(2));
 
-    // ===============================
+    
     // VALIDAR CUPOM
-    // ===============================
+    
     let desconto = 0;
     let cupomCodigo = null;
     let cupomId = null;
@@ -249,9 +248,9 @@ export async function criarPedido(req, res) {
       cupomId = c.id;
     }
 
-    // ===============================
+    
     // TOTAL FINAL
-    // ===============================
+    
     const total = Number((subtotal - desconto + frete).toFixed(2));
 
     if (isNaN(total))
@@ -310,9 +309,9 @@ export async function criarPedido(req, res) {
   }
 }
 
-// ======================================================
+
 // WEBHOOK MERCADO PAGO
-// ======================================================
+
 export async function mercadoPagoWebhook(req, res) {
   try {
 
@@ -330,7 +329,7 @@ export async function mercadoPagoWebhook(req, res) {
     if (!pedidoId)
       return res.status(400).json({ error: "Pedido não encontrado" });
 
-    // 🔒 PROTEÇÃO CONTRA DUPLICAÇÃO
+    //  PROTEÇÃO CONTRA DUPLICAÇÃO
     const [pedidoAtual] = await pool.query(
       "SELECT status, cliente_id, cupom_codigo FROM pedidos WHERE id = ?",
       [pedidoId]
@@ -351,7 +350,7 @@ export async function mercadoPagoWebhook(req, res) {
         ["PAGO", paymentId, pedidoId]
       );
 
-      // 🎟 CONSUMIR CUPOM AQUI
+      // CONSUMIR CUPOM AQUI
       if (pedidoAtual[0].cupom_codigo) {
 
         const [cupom] = await pool.query(
@@ -398,9 +397,9 @@ export async function mercadoPagoWebhook(req, res) {
 }
 
 
-// ======================================================
+
 // BUSCAR PAGAMENTO MERCADO PAGO
-// ======================================================
+
 async function buscarPagamentoMercadoPago(paymentId) {
   const response = await axios.get(
     `https://api.mercadopago.com/v1/payments/${paymentId}`,

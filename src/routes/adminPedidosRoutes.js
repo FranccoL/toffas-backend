@@ -5,7 +5,7 @@ import { atualizarStatusPedido } from "../controllers/adminPedidosController.js"
 
 const router = Router();
 
-// 🔹 LISTAR TODOS OS PEDIDOS
+// LISTAR TODOS OS PEDIDOS
 router.get("/pedidos", autenticarAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(`
@@ -89,7 +89,7 @@ router.get("/pedidos/:id", autenticarAdmin, async (req, res) => {
   }
 });
 
-// 🔹 ATUALIZAR STATUS DO PEDIDO
+// ATUALIZAR STATUS DO PEDIDO
 router.patch(
   "/pedidos/:pedidoId/status",
   autenticarAdmin,

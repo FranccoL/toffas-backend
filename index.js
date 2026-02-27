@@ -36,6 +36,8 @@ app.use("/cupom", cupomRoutes);
 app.use("/admin", adminCupomRoutes);
 app.use("/api", emailRoutes);
 
-app.listen(process.env.APP_PORT, () => {
-  console.log("🚀 Servidor rodando na porta " + process.env.APP_PORT);
+const PORT = process.env.PORT || process.env.APP_PORT || 4000;
+
+app.listen(PORT, () => {
+  console.log("🚀 Servidor rodando na porta " + PORT);
 });

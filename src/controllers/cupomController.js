@@ -7,7 +7,7 @@ export async function validarCupom(req, res) {
     return res.status(400).json({ error: "Código não informado" });
   }
 
-  // 🔒 FORÇA UPPERCASE
+ 
   codigo = codigo.trim().toUpperCase();
 
   try {

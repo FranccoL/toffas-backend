@@ -7,7 +7,7 @@ router.post("/calcular", async (req, res) => {
   try {
     const { cepDestino, produtos } = req.body;
 
-    // 🔒 Validações
+    //  Validações
     if (!cepDestino) {
       return res.status(400).json({ erro: "CEP de destino é obrigatório" });
     }
@@ -16,7 +16,7 @@ router.post("/calcular", async (req, res) => {
       return res.status(400).json({ erro: "Produtos inválidos" });
     }
 
-    // 🧠 Normalização de produtos
+    //  Normalização de produtos
     const products = produtos.map((p, i) => {
       const pesoEmGramas = Number(p.pesoEmGramas);
       const quantidade = Number(p.quantidade ?? 1);
