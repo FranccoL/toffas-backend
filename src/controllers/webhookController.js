@@ -119,7 +119,11 @@ async function criarEnvioMelhorEnvio(pedidoId) {
 export async function criarPedido(req, res) {
 
   const { cliente, itens, cupom } = req.body;
-  let frete = parseFloat(req.body.frete) || 0;
+  const freteObj = req.body.frete || {};
+
+const freteValor = parseFloat(freteObj.valor || 0);
+const freteMetodo = freteObj.metodo || "";
+const fretePrazo = freteObj.prazo || "";
   let connection;
   
   try {
@@ -242,19 +246,19 @@ export async function criarPedido(req, res) {
       throw new Error("Erro no cálculo do pedido");
 
     const [pedidoResult] = await connection.query(
-      `INSERT INTO pedidos 
-      (cliente_id, subtotal, frete, desconto, total, cupom_codigo, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        clienteId,
-        subtotal,
-        frete,
-        desconto,
-        total,
-        cupomCodigo,
-        "AGUARDANDO_PAGAMENTO"
-      ]
-    );
+        `INSERT INTO pedidos 
+        (cliente_id, subtotal, frete_valor, frete_metodo, frete_prazo, total, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          clienteId,
+          subtotal,
+          freteValor,
+          freteMetodo,
+          fretePrazo,
+          total,
+          "AGUARDANDO_PAGAMENTO"
+        ]
+      );
 
     const pedidoId = pedidoResult.insertId;
 
