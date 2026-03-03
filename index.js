@@ -25,7 +25,7 @@ app.use(express.json());
 
 app.use("/clientes", clienteRoutes);
 app.use("/produtos", produtoRoutes);
-app.use("/api/pedidos", pedidoRoutes);
+app.use("/pedidos", pedidoRoutes);
 app.use("/admin", adminRoutes);
 app.use("/admin", adminPedidosRoutes);
 app.use("/frete", freteRoutes);
