@@ -118,9 +118,8 @@ async function criarEnvioMelhorEnvio(pedidoId) {
 
 export async function criarPedido(req, res) {
 
-  
   const { cliente, itens, cupom } = req.body;
-  let frete = parseFloat(req.body.frete) || 0; // 🔒 garante número
+  let frete = parseFloat(req.body.frete) || 0;
   let connection;
   
   try {
@@ -128,8 +127,6 @@ export async function criarPedido(req, res) {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    
-    // CLIENTE
     const [existe] = await connection.query(
       "SELECT id FROM clientes WHERE email = ?",
       [cliente.email]
@@ -159,9 +156,6 @@ export async function criarPedido(req, res) {
       clienteId = clienteResult.insertId;
     }
 
-    
-    // SUBTOTAL
-    
     let subtotal = 0;
 
     for (const item of itens) {
@@ -179,9 +173,6 @@ export async function criarPedido(req, res) {
 
     subtotal = Number(subtotal.toFixed(2));
 
-    
-    // VALIDAR CUPOM
-    
     let desconto = 0;
     let cupomCodigo = null;
     let cupomId = null;
@@ -189,9 +180,9 @@ export async function criarPedido(req, res) {
     if (cupom) {
       const cupomNormalizado = cupom.trim().toUpperCase();
       const [cupomData] = await connection.query(
-  "SELECT * FROM cupons WHERE UPPER(codigo) = ? AND ativo = 1",
-  [cupomNormalizado]
-);
+        "SELECT * FROM cupons WHERE UPPER(codigo) = ? AND ativo = 1",
+        [cupomNormalizado]
+      );
 
       if (!cupomData.length)
         throw new Error("Cupom inválido");
@@ -204,7 +195,6 @@ export async function criarPedido(req, res) {
       if (c.uso_maximo && c.usos >= c.uso_maximo)
         throw new Error("Cupom esgotado");
 
-      // PRIMEIRA COMPRA
       if (c.primeira_compra) {
         const [pedidosPagos] = await connection.query(
           "SELECT id FROM pedidos WHERE cliente_id = ? AND status IN ('PAGO','ENVIADO')",
@@ -215,7 +205,6 @@ export async function criarPedido(req, res) {
           throw new Error("Cupom válido apenas para primeira compra");
       }
 
-      // USO ÚNICO POR CLIENTE
       if (c.uso_por_cliente) {
         const [usado] = await connection.query(
           "SELECT id FROM cupom_usos WHERE cupom_id = ? AND cliente_id = ?",
@@ -226,7 +215,6 @@ export async function criarPedido(req, res) {
           throw new Error("Você já utilizou este cupom");
       }
 
-      // FRETE GRÁTIS
       if (c.frete_gratis) {
         frete = 0;
       }
@@ -248,9 +236,6 @@ export async function criarPedido(req, res) {
       cupomId = c.id;
     }
 
-    
-    // TOTAL FINAL
-    
     const total = Number((subtotal - desconto + frete).toFixed(2));
 
     if (isNaN(total))
@@ -310,6 +295,7 @@ export async function criarPedido(req, res) {
 }
 
 
+
 // WEBHOOK MERCADO PAGO
 
 export async function mercadoPagoWebhook(req, res) {
@@ -329,7 +315,6 @@ export async function mercadoPagoWebhook(req, res) {
     if (!pedidoId)
       return res.status(400).json({ error: "Pedido não encontrado" });
 
-    //  PROTEÇÃO CONTRA DUPLICAÇÃO
     const [pedidoAtual] = await pool.query(
       "SELECT status, cliente_id, cupom_codigo FROM pedidos WHERE id = ?",
       [pedidoId]
@@ -350,7 +335,6 @@ export async function mercadoPagoWebhook(req, res) {
         ["PAGO", paymentId, pedidoId]
       );
 
-      // CONSUMIR CUPOM AQUI
       if (pedidoAtual[0].cupom_codigo) {
 
         const [cupom] = await pool.query(

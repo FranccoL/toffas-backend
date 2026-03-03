@@ -3,7 +3,8 @@ import axios from "axios";
 
 // Criar pedido + gerar link Mercado Pago
 export async function criarPedido(req, res) {
-  const { cliente, itens, frete } = req.body;
+  const { cliente, itens } = req.body;
+  const frete = Number(req.body.frete) || 0;
 
   let connection;
 
@@ -11,23 +12,28 @@ export async function criarPedido(req, res) {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // Cliente
+    
+    // CLIENTE
+    
+
     const [existe] = await connection.query(
       "SELECT id FROM clientes WHERE email = ?",
       [cliente.email]
     );
 
     let clienteId;
+
     if (existe.length > 0) {
       clienteId = existe[0].id;
     } else {
       const [clienteResult] = await connection.query(
         `INSERT INTO clientes 
-         (nome, email, telefone, cep, endereco, numero, bairro, cidade, estado)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (nome, email, cpf, telefone, cep, endereco, numero, bairro, cidade, estado)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           cliente.nome,
           cliente.email,
+          cliente.cpf,
           cliente.telefone,
           cliente.cep,
           cliente.endereco,
@@ -37,10 +43,14 @@ export async function criarPedido(req, res) {
           cliente.estado
         ]
       );
+
       clienteId = clienteResult.insertId;
     }
 
-    // Subtotal
+    // ==============================
+    // CALCULAR SUBTOTAL
+    
+
     let subtotal = 0;
     const produtosParaMP = [];
 
@@ -50,21 +60,29 @@ export async function criarPedido(req, res) {
         [item.id]
       );
 
-      if (produtoRes.length === 0) throw new Error("Produto não encontrado");
+      if (produtoRes.length === 0)
+        throw new Error("Produto não encontrado");
 
-      subtotal += produtoRes[0].preco * item.quantidade;
+      const produto = produtoRes[0];
+      const preco = Number(produto.preco);
 
-      // Monta os produtos para o MP
+      subtotal += preco * item.quantidade;
+
       produtosParaMP.push({
-        title: produtoRes[0].nome,
-        quantity: item.quantidade,
-        unit_price: Number(produtoRes[0].preco)
+        title: produto.nome,
+        quantity: Number(item.quantidade),
+        unit_price: preco,
+        currency_id: "BRL"
       });
     }
 
-    const total = subtotal + frete;
+    subtotal = Number(subtotal.toFixed(2));
+    const total = Number((subtotal + frete).toFixed(2));
 
-    // Criar pedido no banco
+    
+    // CRIAR PEDIDO
+    
+
     const [pedidoResult] = await connection.query(
       `INSERT INTO pedidos 
        (cliente_id, subtotal, frete, total, status)
@@ -74,12 +92,16 @@ export async function criarPedido(req, res) {
 
     const pedidoId = pedidoResult.insertId;
 
-    // Inserir itens no pedido
+    
+    // INSERIR ITENS
+    
+
     for (const item of itens) {
       const [produtoRes] = await connection.query(
         "SELECT nome, preco FROM produtos WHERE id = ?",
         [item.id]
       );
+
       const produto = produtoRes[0];
 
       await connection.query(
@@ -96,19 +118,25 @@ export async function criarPedido(req, res) {
         ]
       );
     }
-
    
+    // CRIAR PREFERÊNCIA MERCADO PAGO
+    
     const mpPreference = {
       items: produtosParaMP,
       payer: {
+        name: cliente.nome,
         email: cliente.email
       },
       external_reference: String(pedidoId),
+
+      notification_url: `${process.env.BACKEND_URL}/webhook/mercadopago`,
+
       back_urls: {
-        success: "http://localhost:3000/pedido/sucesso",
-        failure: "http://localhost:3000/pedido/falha",
-        pending: "http://localhost:3000/pedido/pendente"
+        success: "https://toffascoffee.com.br/pedido/sucesso",
+        failure: "https://toffascoffee.com.br/pedido/falha",
+        pending: "https://toffascoffee.com.br/pedido/pendente"
       },
+
       auto_return: "approved"
     };
 
@@ -121,8 +149,19 @@ export async function criarPedido(req, res) {
         }
       }
     );
+    
+    // SALVAR PREFERENCE ID
+   
+    await connection.query(
+      `UPDATE pedidos 
+       SET mercado_pago_preference_id = ?
+       WHERE id = ?`,
+      [mpData.id, pedidoId]
+    );
 
     await connection.commit();
+
+    // RETORNAR LINK PARA FRONT
 
     res.status(201).json({
       status: "ok",
