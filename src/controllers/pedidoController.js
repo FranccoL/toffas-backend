@@ -84,11 +84,11 @@ export async function criarPedido(req, res) {
     
 
     const [pedidoResult] = await connection.query(
-      `INSERT INTO pedidos 
-       (cliente_id, subtotal, frete, total, status)
-       VALUES (?, ?, ?, ?, ?)`,
-      [clienteId, subtotal, frete, total, "AGUARDANDO_PAGAMENTO"]
-    );
+     `INSERT INTO pedidos 
+        (cliente_id, subtotal, frete_valor, frete_metodo, frete_prazo, total, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [clienteId, subtotal, frete.valor, frete.metodo, frete.prazo, total, "AGUARDANDO_PAGAMENTO"]
+      );
 
     const pedidoId = pedidoResult.insertId;
 
