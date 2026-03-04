@@ -1,9 +1,8 @@
 import express from "express";
-const router = express.Router();
-
 import { criarPedido } from "../controllers/pedidoController.js";
 
-// POST /pedidos → cria pedido + link Mercado Pago
+const router = express.Router();
+
 router.post("/", criarPedido);
 
 export default router;

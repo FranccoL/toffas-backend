@@ -1,10 +1,19 @@
 import pool from "../config/db.js";
 import axios from "axios";
 
-// Criar pedido + gerar link Mercado Pago
 export async function criarPedido(req, res) {
   const { cliente, itens } = req.body;
-  const frete = Number(req.body.frete) || 0;
+  const freteObj = req.body.frete || {};
+
+  let freteValor = 0;
+
+if (freteObj && freteObj.valor !== undefined && freteObj.valor !== null) {
+  freteValor = parseFloat(freteObj.valor);
+  if (isNaN(freteValor)) freteValor = 0;
+}
+
+const freteMetodo = freteObj?.metodo ?? null;
+const fretePrazo = freteObj?.prazo ?? null;
 
   let connection;
 
@@ -12,9 +21,9 @@ export async function criarPedido(req, res) {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    
+    // =========================
     // CLIENTE
-    
+    // =========================
 
     const [existe] = await connection.query(
       "SELECT id FROM clientes WHERE email = ?",
@@ -28,12 +37,11 @@ export async function criarPedido(req, res) {
     } else {
       const [clienteResult] = await connection.query(
         `INSERT INTO clientes 
-         (nome, email, cpf, telefone, cep, endereco, numero, bairro, cidade, estado)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (nome, email, telefone, cep, endereco, numero, bairro, cidade, estado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           cliente.nome,
           cliente.email,
-          cliente.cpf,
           cliente.telefone,
           cliente.cep,
           cliente.endereco,
@@ -47,9 +55,9 @@ export async function criarPedido(req, res) {
       clienteId = clienteResult.insertId;
     }
 
-    // ==============================
+    // =========================
     // CALCULAR SUBTOTAL
-    
+    // =========================
 
     let subtotal = 0;
     const produtosParaMP = [];
@@ -60,7 +68,7 @@ export async function criarPedido(req, res) {
         [item.id]
       );
 
-      if (produtoRes.length === 0)
+      if (!produtoRes.length)
         throw new Error("Produto não encontrado");
 
       const produto = produtoRes[0];
@@ -77,24 +85,32 @@ export async function criarPedido(req, res) {
     }
 
     subtotal = Number(subtotal.toFixed(2));
-    const total = Number((subtotal + frete).toFixed(2));
+    const total = Number((subtotal + freteValor).toFixed(2));
 
-    
+    // =========================
     // CRIAR PEDIDO
-    
+    // =========================
 
     const [pedidoResult] = await connection.query(
-     `INSERT INTO pedidos 
-        (cliente_id, subtotal, frete_valor, frete_metodo, frete_prazo, total, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [clienteId, subtotal, frete.valor, frete.metodo, frete.prazo, total, "AGUARDANDO_PAGAMENTO"]
-      );
+      `INSERT INTO pedidos 
+      (cliente_id, subtotal, frete_valor, frete_metodo, frete_prazo, total, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        clienteId,
+        subtotal,
+        freteValor ?? 0,
+        freteMetodo || null,
+        fretePrazo || null,
+        total,
+        "AGUARDANDO_PAGAMENTO"
+      ]
+    );
 
     const pedidoId = pedidoResult.insertId;
 
-    
+    // =========================
     // INSERIR ITENS
-    
+    // =========================
 
     for (const item of itens) {
       const [produtoRes] = await connection.query(
@@ -106,8 +122,8 @@ export async function criarPedido(req, res) {
 
       await connection.query(
         `INSERT INTO pedido_itens
-         (pedido_id, produto_id, nome_produto, tamanho, quantidade, preco)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        (pedido_id, produto_id, nome_produto, tamanho, quantidade, preco)
+        VALUES (?, ?, ?, ?, ?, ?)`,
         [
           pedidoId,
           item.id,
@@ -118,9 +134,15 @@ export async function criarPedido(req, res) {
         ]
       );
     }
-   
+
+    // 🔥 FINALIZA TRANSAÇÃO ANTES DO MERCADO PAGO
+    await connection.commit();
+    connection.release();
+
+    // =========================
     // CRIAR PREFERÊNCIA MERCADO PAGO
-    
+    // =========================
+
     const mpPreference = {
       items: produtosParaMP,
       payer: {
@@ -128,15 +150,12 @@ export async function criarPedido(req, res) {
         email: cliente.email
       },
       external_reference: String(pedidoId),
-
       notification_url: `${process.env.BACKEND_URL}/webhook/mercadopago`,
-
       back_urls: {
         success: "https://toffascoffee.com.br/pedido/sucesso",
         failure: "https://toffascoffee.com.br/pedido/falha",
         pending: "https://toffascoffee.com.br/pedido/pendente"
       },
-
       auto_return: "approved"
     };
 
@@ -149,34 +168,35 @@ export async function criarPedido(req, res) {
         }
       }
     );
-    
-    // SALVAR PREFERENCE ID
-   
-    await connection.query(
+
+    // Atualiza preference_id (nova conexão curta)
+    await pool.query(
       `UPDATE pedidos 
        SET mercado_pago_preference_id = ?
        WHERE id = ?`,
       [mpData.id, pedidoId]
     );
 
-    await connection.commit();
-
-    // RETORNAR LINK PARA FRONT
-
-    res.status(201).json({
+    return res.status(201).json({
       status: "ok",
       pedidoId,
       pagamento: {
-        status: "AGUARDANDO_PAGAMENTO",
         redirect_url: mpData.init_point
       }
     });
 
   } catch (error) {
     console.error("Erro ao criar pedido:", error);
-    if (connection) await connection.rollback();
-    res.status(500).json({ error: "Erro ao criar pedido" });
-  } finally {
-    if (connection) connection.release();
+
+    if (connection) {
+      try {
+        await connection.rollback();
+        connection.release();
+      } catch {}
+    }
+
+    return res.status(500).json({
+      error: error.message
+    });
   }
 }

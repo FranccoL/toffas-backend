@@ -121,7 +121,7 @@ export async function criarPedido(req, res) {
   const { cliente, itens, cupom } = req.body;
   const freteObj = req.body.frete || {};
 
-const freteValor = parseFloat(freteObj.valor || 0);
+let freteValor = parseFloat(freteObj.valor || 0);
 const freteMetodo = freteObj.metodo || "";
 const fretePrazo = freteObj.prazo || "";
   let connection;
@@ -220,7 +220,7 @@ const fretePrazo = freteObj.prazo || "";
       }
 
       if (c.frete_gratis) {
-        frete = 0;
+        freteValor = 0;
       }
 
       const valorCupom = parseFloat(c.valor) || 0;
@@ -240,7 +240,7 @@ const fretePrazo = freteObj.prazo || "";
       cupomId = c.id;
     }
 
-    const total = Number((subtotal - desconto + frete).toFixed(2));
+    const total = Number((subtotal - desconto + freteValor).toFixed(2));
 
     if (isNaN(total))
       throw new Error("Erro no cálculo do pedido");
