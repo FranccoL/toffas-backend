@@ -121,7 +121,7 @@ export async function criarPedido(req, res) {
   const { cliente, itens, cupom } = req.body;
   const freteObj = req.body.frete || {};
 
-let freteValor = parseFloat(freteObj.valor || 0);
+let freteValor = parseFloat(String(freteObj.valor || 0).replace(",", ".")) || 0;
 const freteMetodo = freteObj.metodo || "";
 const fretePrazo = freteObj.prazo || "";
   let connection;
