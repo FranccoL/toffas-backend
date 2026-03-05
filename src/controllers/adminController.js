@@ -30,7 +30,7 @@ const login = async (req, res) => {
     const token = jwt.sign(
       { id: user.id, email: user.email, nome: user.nome },
       process.env.ADMIN_SECRET,
-      { expiresIn: "24m" }
+      { expiresIn: "30d" }
     );
 
     res.json({ token, nome: user.nome, email: user.email });

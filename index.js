@@ -14,6 +14,7 @@ import cupomRoutes from "./src/routes/cupomRoutes.js";
 import adminCupomRoutes from "./src/routes/adminCupomRoutes.js";
 import emailRoutes from "./src/routes/emailRoutes.js";
 
+
 const app = express();
 
 app.use(cors());
