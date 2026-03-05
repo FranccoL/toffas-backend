@@ -1,6 +1,6 @@
 import pool from "../config/db.js";
 import axios from "axios";
-import { enviarEmailRastreio } from "../services/emailService.js";
+import { enviarEmailRastreio, enviarEmailConfirmacaoPedido } from "../services/emailService.js";
 
 
 
@@ -99,12 +99,18 @@ async function criarEnvioMelhorEnvio(pedidoId) {
       ["ENVIADO", codigoRastreio, envioId, pedidoId]
     );
 
-    await enviarEmailRastreio(
-      pedidoData.email,
-      pedidoData.nome,
+    await enviarEmailConfirmacaoPedido({
+      email: pedidoData.email,
+      nome: pedidoData.nome,
+      pedidoId,
+      itens,
+      subtotal: Number(pedidoData.subtotal),
+      freteValor: Number(pedidoData.frete_valor),
+      freteMetodo: pedidoData.frete_metodo,
+      total: Number(pedidoData.total),
       codigoRastreio,
       linkRastreio
-    );
+    });
 
   } catch (error) {
     console.error("Erro Melhor Envio:", error.response?.data || error);
