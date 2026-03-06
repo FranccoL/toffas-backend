@@ -30,7 +30,7 @@ export async function criarPedido(req, res) {
     } else {
       const [novoCliente] = await connection.query(
         `INSERT INTO clientes 
-        (nome, email, telefone, cep, endereco, numero, bairro, cidade, estado)
+        (nome, email, telefone, cep, endereco, numero, complemento, bairro, cidade, estado)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           cliente.nome,
@@ -39,6 +39,7 @@ export async function criarPedido(req, res) {
           cliente.cep,
           cliente.endereco,
           cliente.numero,
+          cliente.complemento || "",
           cliente.bairro,
           cliente.cidade,
           cliente.estado
@@ -221,10 +222,17 @@ export async function criarPedido(req, res) {
     // =========================
     // MERCADO PAGO
     // =========================
+    const cpfLimpo = (cliente.cpf || "").replace(/\D/g, "");
+
     const mpPreference = {
       items: produtosParaMP,
-      payer: { name: cliente.nome, email: cliente.email },
+      payer: {
+        name: cliente.nome,
+        email: cliente.email,
+        identification: cpfLimpo ? { type: "CPF", number: cpfLimpo } : undefined
+      },
       external_reference: String(pedidoId),
+      statement_descriptor: "TOFFASCOFFEE",
       notification_url: `${process.env.BACKEND_URL}/webhook/mercadopago`,
       back_urls: {
         success: "https://toffascoffee.com.br/pedido/sucesso",

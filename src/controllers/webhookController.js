@@ -149,7 +149,7 @@ const fretePrazo = freteObj.prazo || "";
     } else {
       const [clienteResult] = await connection.query(
         `INSERT INTO clientes 
-        (nome, email, telefone, cep, endereco, numero, bairro, cidade, estado)
+        (nome, email, telefone, cep, endereco, numero, complemento, bairro, cidade, estado)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           cliente.nome,
@@ -158,6 +158,7 @@ const fretePrazo = freteObj.prazo || "";
           cliente.cep,
           cliente.endereco,
           cliente.numero,
+          cliente.complemento || "",
           cliente.bairro,
           cliente.cidade,
           cliente.estado

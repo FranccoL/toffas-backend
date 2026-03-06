@@ -9,6 +9,7 @@ export async function criarCliente(req, res) {
     cep,
     endereco,
     numero,
+     complemento,
     bairro,
     cidade,
     estado
@@ -34,10 +35,10 @@ export async function criarCliente(req, res) {
 
     // Inserir cliente
     const [result] = await pool.query(
-      `INSERT INTO clientes
-       (nome, email, telefone, cep, endereco, numero, bairro, cidade, estado)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [nome, email, telefone, cep, endereco, numero, bairro, cidade, estado]
+     `INSERT INTO clientes
+       (nome, email, telefone, cep, endereco, numero, complemento, bairro, cidade, estado)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [nome, email, telefone, cep, endereco, numero, complemento || "", bairro, cidade, estado]
     );
 
     return res.status(201).json({
@@ -57,7 +58,7 @@ export async function buscarClientePorEmail(req, res) {
 
   try {
     const [rows] = await pool.query(
-      "SELECT id, nome, email, telefone, criado_em FROM clientes WHERE email = ? LIMIT 1",
+      "SELECT id, nome, email, telefone, cep, endereco, numero, complemento, bairro, cidade, estado, criado_em FROM clientes WHERE email = ? LIMIT 1",
       [email]
     );
 
