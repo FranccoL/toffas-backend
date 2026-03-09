@@ -31,7 +31,7 @@ export async function criarPedido(req, res) {
       const [novoCliente] = await connection.query(
         `INSERT INTO clientes 
         (nome, email, telefone, cep, endereco, numero, complemento, bairro, cidade, estado)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           cliente.nome,
           cliente.email,
