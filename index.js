@@ -20,7 +20,7 @@ const app = express();
 app.use(cors());
 
 
-app.use("/webhook", express.raw({ type: "*/*" }));
+app.use("/webhook", express.json());
 
 app.use(express.json());
 

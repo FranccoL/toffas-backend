@@ -33,7 +33,7 @@ async function criarEnvioMelhorEnvio(pedidoId) {
     );
 
     const cart = await axios.post(
-      "https://sandbox.melhorenvio.com.br/api/v2/me/cart",
+      "https://melhorenvio.com.br/api/v2/me/cart",
       {
         from: {
           name: "Toffa's Coffee",
@@ -78,13 +78,13 @@ async function criarEnvioMelhorEnvio(pedidoId) {
     const envioId = cart.data.id;
 
     await axios.post(
-      `https://sandbox.melhorenvio.com.br/api/v2/me/cart/${envioId}/checkout`,
+      `https://melhorenvio.com.br/api/v2/me/cart/${envioId}/checkout`,
       {},
       { headers: { Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}` } }
     );
 
     const etiqueta = await axios.post(
-      `https://sandbox.melhorenvio.com.br/api/v2/me/cart/${envioId}/generate`,
+      `https://melhorenvio.com.br/api/v2/me/cart/${envioId}/generate`,
       {},
       { headers: { Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}` } }
     );
