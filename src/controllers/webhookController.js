@@ -1,6 +1,7 @@
 import pool from "../config/db.js";
 import axios from "axios";
 import { enviarEmailRastreio, enviarEmailConfirmacaoPedido } from "../services/emailService.js";
+import nodemailer from "nodemailer";
 
 
 
@@ -372,6 +373,52 @@ export async function mercadoPagoWebhook(req, res) {
       }
 
       await criarEnvioMelhorEnvio(pedidoId);
+
+      // Notifica o dono da loja sobre pagamento aprovado
+      try {
+        const emailTransporter = nodemailer.createTransport({
+          service: "gmail",
+          auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS
+          }
+        });
+
+        const destinatario = process.env.RECIPIENT_EMAIL || process.env.EMAIL_USER;
+        if (destinatario) {
+          const [pedidoInfo] = await pool.query(
+            `SELECT p.*, c.nome, c.email AS cliente_email
+             FROM pedidos p
+             JOIN clientes c ON p.cliente_id = c.id
+             WHERE p.id = ?`,
+            [pedidoId]
+          );
+
+          if (pedidoInfo.length) {
+            const info = pedidoInfo[0];
+            await emailTransporter.sendMail({
+              from: `"Toffa's Coffee" <${process.env.EMAIL_USER}>`,
+              to: destinatario,
+              subject: `Pagamento confirmado - Pedido #${pedidoId}`,
+              html: `
+                <div style="font-family: Arial, sans-serif; max-width:600px; margin:0 auto;">
+                  <div style="background:#2e7d32; padding:24px; text-align:center;">
+                    <h1 style="color:#fff; margin:0; font-size:22px;">Pagamento Confirmado!</h1>
+                  </div>
+                  <div style="padding:24px;">
+                    <p><strong>Pedido #${pedidoId}</strong></p>
+                    <p><strong>Cliente:</strong> ${info.nome} (${info.cliente_email})</p>
+                    <p><strong>Total:</strong> R$ ${Number(info.total).toFixed(2).replace(".", ",")}</p>
+                    <p style="color:#2e7d32; font-weight:bold;">O envio esta sendo processado automaticamente.</p>
+                  </div>
+                </div>
+              `
+            });
+          }
+        }
+      } catch (emailErr) {
+        console.error("Erro ao notificar dono sobre pagamento:", emailErr);
+      }
     }
 
     if (status === "cancelled") {

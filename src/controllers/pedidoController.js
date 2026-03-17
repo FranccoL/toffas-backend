@@ -1,5 +1,6 @@
 import pool from "../config/db.js";
 import axios from "axios";
+import nodemailer from "nodemailer";
  
 export async function criarPedido(req, res) {
   const { cliente, itens, cupom } = req.body;
@@ -235,9 +236,9 @@ export async function criarPedido(req, res) {
       statement_descriptor: "TOFFASCOFFEE",
       notification_url: `${process.env.BACKEND_URL}/webhook/mercadopago`,
       back_urls: {
-        success: "https://toffascoffee.com.br/pedido/sucesso",
-        failure: "https://toffascoffee.com.br/pedido/falha",
-        pending: "https://toffascoffee.com.br/pedido/pendente"
+        success: `${process.env.FRONTEND_URL || "https://toffascoffee.com.br"}/pedido/sucesso`,
+        failure: `${process.env.FRONTEND_URL || "https://toffascoffee.com.br"}/pedido/falha`,
+        pending: `${process.env.FRONTEND_URL || "https://toffascoffee.com.br"}/pedido/pendente`
       },
       auto_return: "approved"
     };
@@ -253,6 +254,58 @@ export async function criarPedido(req, res) {
       [mpData.id, pedidoId]
     );
  
+    // Notifica o dono da loja sobre novo pedido
+    try {
+      const emailTransporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS
+        }
+      });
+
+      const destinatario = process.env.RECIPIENT_EMAIL || process.env.EMAIL_USER;
+      if (destinatario) {
+        const itensHtml = itens.map(item => {
+          const produto = produtosBanco.find(p => p.id === item.id);
+          return `<tr>
+            <td style="padding:8px 12px; border-bottom:1px solid #eee;">${produto.nome}</td>
+            <td style="padding:8px 12px; border-bottom:1px solid #eee; text-align:center;">${item.quantidade}</td>
+            <td style="padding:8px 12px; border-bottom:1px solid #eee; text-align:right;">R$ ${Number(produto.preco).toFixed(2).replace(".", ",")}</td>
+          </tr>`;
+        }).join("");
+
+        await emailTransporter.sendMail({
+          from: `"Toffa's Coffee" <${process.env.EMAIL_USER}>`,
+          to: destinatario,
+          subject: `Novo pedido #${pedidoId} - R$ ${total.toFixed(2).replace(".", ",")}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width:600px; margin:0 auto;">
+              <div style="background:#000; padding:24px; text-align:center;">
+                <h1 style="color:#fff; margin:0; font-size:22px;">Novo Pedido Recebido!</h1>
+              </div>
+              <div style="padding:24px;">
+                <p><strong>Pedido #${pedidoId}</strong></p>
+                <p><strong>Cliente:</strong> ${cliente.nome} (${cliente.email})</p>
+                <table style="width:100%; border-collapse:collapse; margin:16px 0;">
+                  <thead><tr style="background:#f7f7f7;">
+                    <th style="padding:10px 12px; text-align:left;">Produto</th>
+                    <th style="padding:10px 12px; text-align:center;">Qtd</th>
+                    <th style="padding:10px 12px; text-align:right;">Preco</th>
+                  </tr></thead>
+                  <tbody>${itensHtml}</tbody>
+                </table>
+                <p><strong>Total: R$ ${total.toFixed(2).replace(".", ",")}</strong></p>
+                <p style="color:#888;">Status: Aguardando pagamento</p>
+              </div>
+            </div>
+          `
+        });
+      }
+    } catch (emailErr) {
+      console.error("Erro ao enviar email de notificacao:", emailErr);
+    }
+
     return res.status(201).json({
       status: "ok",
       pedidoId,
