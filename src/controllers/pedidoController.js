@@ -42,8 +42,10 @@ export async function criarPedido(req, res) {
  
     for (const item of itens) {
       const produto = produtosBanco.find(p => p.id === item.id);
+      if (!produto) throw new Error(`Produto não encontrado ID: ${item.id}`);
+
       const preco = Number(produto.preco);
-      const quantidade = Number(item.quantity) || 1;
+      const quantidade = Number(item.quantidade) || 1; // Ajustado para 'quantidade'
       subtotal += preco * quantidade;
  
       produtosParaMP.push({
@@ -54,10 +56,30 @@ export async function criarPedido(req, res) {
       });
     }
  
-    // 3. VALIDAR CUPOM E CALCULAR TOTAL
+    // 3. VALIDAR E APLICAR CUPOM (OTIMIZADO)
     let desconto = 0;
     let cupomCodigo = null;
-    // ... (lógica de cupom simplificada para o exemplo, mantenha a sua original se preferir)
+
+    if (cupom) {
+      const cupomNormalizado = cupom.trim().toUpperCase();
+      const [cupomData] = await connection.query(
+        "SELECT * FROM cupons WHERE UPPER(codigo) = ? AND ativo = 1 LIMIT 1",
+        [cupomNormalizado]
+      );
+
+      if (cupomData.length) {
+        const c = cupomData[0];
+        const valorCupom = parseFloat(c.valor) || 0;
+        if (c.tipo === "percentual") {
+          desconto = (subtotal * valorCupom) / 100;
+        } else {
+          desconto = valorCupom;
+        }
+        if (desconto > subtotal) desconto = subtotal;
+        desconto = Number(desconto.toFixed(2));
+        cupomCodigo = cupomNormalizado;
+      }
+    }
  
     const total = Number((subtotal - desconto + freteValor).toFixed(2));
  
@@ -74,7 +96,14 @@ export async function criarPedido(req, res) {
       await connection.query(
         `INSERT INTO pedido_itens (pedido_id, produto_id, nome_produto, tamanho, quantidade, preco)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [pedidoId, produto.id, produto.nome, item.tamanho, item.quantity, produto.preco]
+        [
+          pedidoId, 
+          produto.id, 
+          produto.nome, 
+          item.tamanho, 
+          item.quantidade, // Ajustado para 'quantidade'
+          produto.preco
+        ]
       );
     }
  
@@ -102,7 +131,7 @@ export async function criarPedido(req, res) {
  
     await pool.query(`UPDATE pedidos SET mercado_pago_preference_id = ? WHERE id = ?`, [mpData.id, pedidoId]);
  
-    // 6. NOTIFICAÇÃO AO DONO (EM SEGUNDO PLANO - NÃO BLOQUEIA O CLIENTE)
+    // 6. NOTIFICAÇÃO AO DONO (EM SEGUNDO PLANO)
     (async () => {
       try {
         const emailTransporter = nodemailer.createTransport({
@@ -130,6 +159,7 @@ export async function criarPedido(req, res) {
  
   } catch (error) {
     if (connection) await connection.rollback();
+    console.error("Erro ao criar pedido:", error.message);
     return res.status(500).json({ error: error.message });
   } finally {
     if (connection) connection.release();
