@@ -45,7 +45,7 @@ export async function criarPedido(req, res) {
       if (!produto) throw new Error(`Produto não encontrado ID: ${item.id}`);
 
       const preco = Number(produto.preco);
-      const quantidade = Number(item.quantidade) || 1; // Ajustado para 'quantidade'
+      const quantidade = Number(item.quantidade) || 1;
       subtotal += preco * quantidade;
  
       produtosParaMP.push({
@@ -56,7 +56,7 @@ export async function criarPedido(req, res) {
       });
     }
  
-    // 3. VALIDAR E APLICAR CUPOM (OTIMIZADO)
+    // 3. VALIDAR E APLICAR CUPOM
     let desconto = 0;
     let cupomCodigo = null;
 
@@ -82,6 +82,28 @@ export async function criarPedido(req, res) {
     }
  
     const total = Number((subtotal - desconto + freteValor).toFixed(2));
+
+    // ============================================================
+    // AJUSTE PARA O MERCADO PAGO (FRETE E DESCONTO)
+    // ============================================================
+    
+    // Se houver desconto, aplicamos ele proporcionalmente nos itens
+    if (desconto > 0 && subtotal > 0) {
+      const fatorDesconto = (subtotal - desconto) / subtotal;
+      produtosParaMP.forEach(item => {
+        item.unit_price = Number((item.unit_price * fatorDesconto).toFixed(2));
+      });
+    }
+
+    // Adiciona o Frete como um item separado para o Mercado Pago
+    if (freteValor > 0) {
+      produtosParaMP.push({
+        title: `Frete (${freteMetodo || 'Envio'})`,
+        quantity: 1,
+        unit_price: freteValor,
+        currency_id: "BRL"
+      });
+    }
  
     // 4. CRIAR PEDIDO NO BANCO
     const [pedidoResult] = await connection.query(
@@ -96,14 +118,7 @@ export async function criarPedido(req, res) {
       await connection.query(
         `INSERT INTO pedido_itens (pedido_id, produto_id, nome_produto, tamanho, quantidade, preco)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          pedidoId, 
-          produto.id, 
-          produto.nome, 
-          item.tamanho, 
-          item.quantidade, // Ajustado para 'quantidade'
-          produto.preco
-        ]
+        [pedidoId, produto.id, produto.nome, item.tamanho, item.quantidade, produto.preco]
       );
     }
  
@@ -144,13 +159,12 @@ export async function criarPedido(req, res) {
             from: `"Toffa's Coffee" <${process.env.EMAIL_USER}>`,
             to: destinatario,
             subject: `Novo pedido #${pedidoId} iniciado`,
-            html: `<p>Um novo pedido foi iniciado no site. Aguardando pagamento.</p>`
+            html: `<p>Um novo pedido de R$ ${total.toFixed(2)} foi iniciado no site.</p>`
           });
         }
       } catch (err) { console.error("Erro e-mail background:", err); }
     })();
  
-    // 7. RETORNA O LINK IMEDIATAMENTE
     return res.status(201).json({
       status: "ok",
       pedidoId,
