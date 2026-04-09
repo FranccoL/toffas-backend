@@ -1,6 +1,6 @@
 import pool from "../config/db.js";
 import axios from "axios";
-import { enviarEmailRastreio, enviarEmailConfirmacaoPedido } from "../services/emailService.js";
+import { enviarEmailConfirmacaoPedido, enviarEmailRastreio } from "../services/emailService.js";
 import nodemailer from "nodemailer";
 
 // ==========================================
