@@ -13,15 +13,13 @@ import produtoRoutes from "./src/routes/produtoRoutes.js";
 import cupomRoutes from "./src/routes/cupomRoutes.js";
 import adminCupomRoutes from "./src/routes/adminCupomRoutes.js";
 import emailRoutes from "./src/routes/emailRoutes.js";
-
+import axios from "axios"; // Adicionado
 
 const app = express();
 
 app.use(cors());
 
-
 app.use("/webhook", express.json());
-
 app.use(express.json());
 
 app.use("/clientes", clienteRoutes);
@@ -38,5 +36,18 @@ app.use("/api", emailRoutes);
 const PORT = process.env.PORT || process.env.APP_PORT || 4000;
 
 app.listen(PORT, () => {
-  console.log("🚀 Servidor rodando na porta " + PORT);
+  console.log(" Servidor rodando na porta " + PORT);
+
+  // Keep-alive para o Render (plano gratuito)
+  const BACKEND_URL = process.env.BACKEND_URL;
+  if (BACKEND_URL) {
+    setInterval(async () => {
+      try {
+        await axios.get(`${BACKEND_URL}/clientes`); // Rota leve para ping
+        console.log("Ping de auto-sustentação enviado com sucesso.");
+      } catch (err) {
+        console.error("Erro no auto-ping:", err.message);
+      }
+    }, 10 * 60 * 1000); // A cada 10 minutos
+  }
 });
