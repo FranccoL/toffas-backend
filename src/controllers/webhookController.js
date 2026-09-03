@@ -436,8 +436,14 @@ export async function mercadoPagoWebhook(req, res) {
       );
 
       // 2. Busca dados completos para os e-mails
+            // 2. Busca dados completos para os e-mails (agora com todos os campos do cliente)
       const [pedidoCompleto] = await pool.query(
-        `SELECT p.*, c.nome, c.email FROM pedidos p JOIN clientes c ON p.cliente_id = c.id WHERE p.id = ?`,
+        `SELECT p.*, 
+                c.nome, c.email, c.telefone, c.cpf,
+                c.cep, c.endereco, c.numero, c.complemento, c.bairro, c.cidade, c.estado
+         FROM pedidos p 
+         JOIN clientes c ON p.cliente_id = c.id 
+         WHERE p.id = ?`,
         [pedidoId]
       );
 
@@ -462,7 +468,7 @@ export async function mercadoPagoWebhook(req, res) {
           console.error("❌ Erro ao enviar email de confirmação ao cliente:", emailCliErr.message);
         }
 
-        // 4. Envia e-mail de NOTIFICAÇÃO DE VENDA para o DONO (Você)
+                // 4. Envia e-mail de NOTIFICAÇÃO DE VENDA para o DONO (Você) - COMPLETO
         try {
           const emailTransporter = nodemailer.createTransport({
             service: "gmail",
@@ -473,16 +479,78 @@ export async function mercadoPagoWebhook(req, res) {
             family: 4,
           });
 
-          // GARANTIA: Se a variável falhar, envia para o seu e-mail principal
           const destinatario = process.env.RECIPIENT_EMAIL || process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com";
-          
+
+          // Forma de pagamento vinda do Mercado Pago
+          const metodoPagamento = pagamento.payment_method_id || "Não informado";
+          const tipoPagamento = pagamento.payment_type_id || "";
+          const parcelas = pagamento.installments || 1;
+
+          const itensHtml = itens.map(item => `
+            <tr>
+              <td style="padding:6px; border-bottom:1px solid #eee;">${item.nome_produto}${item.tamanho ? ` (${item.tamanho})` : ""}</td>
+              <td style="padding:6px; border-bottom:1px solid #eee; text-align:center;">${item.quantidade}</td>
+              <td style="padding:6px; border-bottom:1px solid #eee; text-align:right;">R$ ${Number(item.preco).toFixed(2)}</td>
+            </tr>`).join("");
+
+          const html = `
+            <div style="font-family: Arial, sans-serif; max-width:650px; margin:0 auto;">
+              <div style="background:#000; color:#fff; padding:16px; text-align:center;">
+                <h2 style="margin:0;">🛒 Nova Venda - Pedido #${pedidoId}</h2>
+              </div>
+
+              <div style="padding:20px; border:1px solid #eee;">
+                <h3>👤 Dados do Cliente</h3>
+                <p>
+                  <strong>Nome:</strong> ${pData.nome}<br>
+                  <strong>E-mail:</strong> ${pData.email}<br>
+                  <strong>Telefone:</strong> ${pData.telefone}<br>
+                  <strong>CPF:</strong> ${pData.cpf}
+                </p>
+
+                <h3>📍 Endereço de Entrega</h3>
+                <p>
+                  ${pData.endereco}, ${pData.numero} ${pData.complemento ? "- " + pData.complemento : ""}<br>
+                  ${pData.bairro} - ${pData.cidade}/${pData.estado}<br>
+                  CEP: ${pData.cep}
+                </p>
+
+                <h3>💳 Pagamento</h3>
+                <p>
+                  <strong>ID Mercado Pago:</strong> ${paymentId}<br>
+                  <strong>Método:</strong> ${metodoPagamento} (${tipoPagamento})<br>
+                  <strong>Parcelas:</strong> ${parcelas}x
+                </p>
+
+                <h3>📦 Itens do Pedido</h3>
+                <table style="width:100%; border-collapse:collapse;">
+                  <thead>
+                    <tr style="background:#f8f8f8;">
+                      <th style="text-align:left; padding:6px;">Produto</th>
+                      <th style="padding:6px;">Qtd</th>
+                      <th style="text-align:right; padding:6px;">Preço</th>
+                    </tr>
+                  </thead>
+                  <tbody>${itensHtml}</tbody>
+                </table>
+
+                <h3>💰 Resumo Financeiro</h3>
+                <p>
+                  Subtotal: R$ ${Number(pData.subtotal).toFixed(2)}<br>
+                  Frete (${pData.frete_metodo || "N/A"}): R$ ${Number(pData.frete_valor).toFixed(2)}<br>
+                  ${pData.cupom_codigo ? `Cupom aplicado: ${pData.cupom_codigo}<br>` : ""}
+                  <strong style="font-size:18px;">Total Pago: R$ ${Number(pData.total).toFixed(2)}</strong>
+                </p>
+              </div>
+            </div>`;
+
           await emailTransporter.sendMail({
             from: `"Toffa's Coffee" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'toffascoffee@gmail.com'}>`,
             to: destinatario,
-            subject: `VENDA REALIZADA - Pedido #${pedidoId}`,
-            html: `<h1>Venda Confirmada!</h1><p>O pedido #${pedidoId} de R$ ${Number(pData.total).toFixed(2)} foi pago com sucesso.</p>`
+            subject: `💰 VENDA REALIZADA - Pedido #${pedidoId} - R$ ${Number(pData.total).toFixed(2)}`,
+            html
           });
-          console.log(`📧 Notificação de venda enviada para o dono: ${destinatario}`);
+          console.log(`📧 Notificação completa de venda enviada para o dono: ${destinatario}`);
         } catch (errDono) {
           console.error("❌ Erro ao notificar dono:", errDono.message);
         }
