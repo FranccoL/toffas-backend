@@ -1,5 +1,5 @@
 import express from "express";
-import { enviarEmailAluguel } from "../services/emailService.js"; // Importando a função nova
+import { enviarEmailAluguel } from "../services/emailService.js"; 
 
 const router = express.Router();
 

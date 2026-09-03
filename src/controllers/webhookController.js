@@ -193,7 +193,7 @@ async function criarEnvioMelhorEnvio(pedidoId) {
       postal_code: pedidoData.cep
     };
 
-    // =====================================================
+   // =====================================================
     // 8. CONSULTAR FRETES
     // =====================================================
     console.log("");
@@ -203,10 +203,67 @@ async function criarEnvioMelhorEnvio(pedidoId) {
 
     const cotacao = await axios.post(
       "https://melhorenvio.com.br/api/v2/me/shipment/calculate",
+      { from, to, products },
       {
+        headers: {
+          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`,
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        }
+      }
+    );
+
+    const fretes = Array.isArray(cotacao.data) ? cotacao.data : [];
+
+    if (!fretes.length) {
+      throw new Error("Nenhum serviço de frete retornado pelo Melhor Envio.");
+    }
+
+    // =====================================================
+    // 9. ESCOLHER O SERVIÇO IGUAL AO QUE O CLIENTE PAGOU
+    // =====================================================
+    // Tenta achar o serviço com transportadora+nome batendo com o que
+    // foi salvo no pedido (ex: "JeT - Standard")
+    const metodoEscolhido = String(pedidoData.frete_metodo || "").toLowerCase();
+
+    let servicoSelecionado = fretes.find(frete => {
+      const label = `${frete.company?.name || ""} - ${frete.name || ""}`.toLowerCase();
+      return metodoEscolhido.includes(label) || label.includes(metodoEscolhido);
+    });
+
+    // Fallback: se não achar por nome, usa o mais barato
+    if (!servicoSelecionado) {
+      console.log("⚠️ Não encontrei o serviço exato pelo nome, usando o mais barato como fallback.");
+      servicoSelecionado = [...fretes].sort((a, b) => Number(a.price) - Number(b.price))[0];
+    }
+
+    if (!servicoSelecionado || servicoSelecionado.error) {
+      throw new Error("Não foi possível selecionar um serviço de frete válido.");
+    }
+
+    console.log(`✅ Serviço selecionado: ${servicoSelecionado.company?.name} - ${servicoSelecionado.name} (ID ${servicoSelecionado.id})`);
+
+    // =====================================================
+    // 10. ADICIONAR AO CARRINHO
+    // =====================================================
+    console.log("🛒 Adicionando envio ao carrinho do Melhor Envio...");
+
+    const carrinho = await axios.post(
+      "https://melhorenvio.com.br/api/v2/me/cart",
+      {
+        service: servicoSelecionado.id,
         from,
         to,
-        products
+        products,
+        volumes: [
+          { height: 4, width: 12, length: 16, weight: 0.3 }
+        ],
+        options: {
+          non_commercial: true,
+          insurance_value: Number(pedidoData.total) || 0,
+          receipt: false,
+          own_hand: false
+        }
       },
       {
         headers: {
@@ -217,194 +274,114 @@ async function criarEnvioMelhorEnvio(pedidoId) {
       }
     );
 
-    // =====================================================
-    // 9. VALIDAR RESPOSTA
-    // =====================================================
-    const fretes = Array.isArray(cotacao.data)
-      ? cotacao.data
-      : [];
-
-    if (!fretes.length) {
-      console.log("");
-      console.log("❌ O MELHOR ENVIO NÃO RETORNOU NENHUM FRETE.");
-      console.log("");
-      console.log("Resposta completa:");
-      console.log(
-        JSON.stringify(cotacao.data, null, 2)
-      );
-
-      throw new Error(
-        "Nenhum serviço de frete retornado pelo Melhor Envio."
-      );
-    }
+    const cartItemId = carrinho.data.id;
+    console.log(`✅ Adicionado ao carrinho. ID: ${cartItemId}`);
 
     // =====================================================
-    // 10. MOSTRAR TODOS OS SERVIÇOS
+    // 11. CHECKOUT (PAGAR O FRETE COM O SALDO DA CONTA)
     // =====================================================
-    console.log("");
-    console.log("==========================================");
-    console.log(`✅ ${fretes.length} SERVIÇO(S) ENCONTRADO(S)`);
-    console.log("==========================================");
+    console.log("💳 Realizando checkout do frete...");
 
-    fretes.forEach((frete, index) => {
-
-      const transportadora = String(
-        frete.company?.name || ""
-      );
-
-      const servico = String(
-        frete.name || ""
-      );
-
-      console.log("");
-      console.log(`🚚 FRETE ${index + 1}`);
-      console.log("------------------------------------------");
-      console.log(`ID DO SERVIÇO: ${frete.id}`);
-      console.log(`TRANSPORTADORA: ${transportadora}`);
-      console.log(`SERVIÇO: ${servico}`);
-      console.log(
-        `PREÇO: R$ ${Number(frete.price || 0).toFixed(2)}`
-      );
-      console.log(
-        `PRAZO: ${frete.delivery_time || frete.delivery_range?.min || "Não informado"}`
-      );
-
-      if (frete.delivery_range) {
-        console.log(
-          `PRAZO MÍNIMO: ${frete.delivery_range.min}`
-        );
-
-        console.log(
-          `PRAZO MÁXIMO: ${frete.delivery_range.max}`
-        );
+    await axios.post(
+      "https://melhorenvio.com.br/api/v2/me/shipment/checkout",
+      { orders: [cartItemId] },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`,
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        }
       }
+    );
 
-      console.log("------------------------------------------");
-    });
+    console.log("✅ Checkout realizado com sucesso.");
 
     // =====================================================
-    // 11. PROCURAR LOGGI EXPRESS
+    // 12. GERAR ETIQUETA
     // =====================================================
-    const loggiExpress = fretes.find(frete => {
+    console.log("🏷️ Gerando etiqueta...");
 
-      const transportadora = String(
-        frete.company?.name || ""
-      ).toLowerCase();
+    const geracao = await axios.post(
+      "https://melhorenvio.com.br/api/v2/me/shipment/generate",
+      { orders: [cartItemId] },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`,
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        }
+      }
+    );
 
-      const servico = String(
-        frete.name || ""
-      ).toLowerCase();
+    console.log("✅ Etiqueta gerada:", JSON.stringify(geracao.data, null, 2));
 
-      return (
-        transportadora.includes("loggi") &&
-        (
-          servico.includes("express") ||
-          servico.includes("expresso")
-        )
-      );
-    });
+    // =====================================================
+    // 13. BUSCAR CÓDIGO DE RASTREIO
+    // =====================================================
+    console.log("🔎 Buscando código de rastreio...");
 
-    console.log("");
-    console.log("==========================================");
-    console.log("🔎 RESULTADO DA BUSCA POR LOGGI EXPRESS");
-    console.log("==========================================");
+    const rastreioResp = await axios.get(
+      `https://melhorenvio.com.br/api/v2/me/orders/${cartItemId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.MELHOR_ENVIO_TOKEN}`,
+          Accept: "application/json"
+        }
+      }
+    );
 
-    if (loggiExpress) {
+    const codigoRastreio = rastreioResp.data?.tracking || null;
+    const linkRastreio = codigoRastreio
+      ? `https://www.melhorrastreio.com.br/rastreio/${codigoRastreio}`
+      : null;
 
-      console.log("✅ LOGGI EXPRESS ENCONTRADO!");
+    console.log(`📦 Código de rastreio: ${codigoRastreio || "ainda não disponível"}`);
 
-      console.log("");
-      console.log("SERVICE ID:");
-      console.log(loggiExpress.id);
+    // =====================================================
+    // 14. SALVAR NO BANCO E ATUALIZAR STATUS
+    // =====================================================
+    await pool.query(
+      `UPDATE pedidos 
+       SET status = ?, melhor_envio_cart_id = ?, codigo_rastreio = ?
+       WHERE id = ?`,
+      ["ENVIADO", cartItemId, codigoRastreio, pedidoId]
+    );
 
-      console.log("");
-      console.log("TRANSPORTADORA:");
-      console.log(loggiExpress.company?.name);
-
-      console.log("");
-      console.log("SERVIÇO:");
-      console.log(loggiExpress.name);
-
-      console.log("");
-      console.log("PREÇO:");
-      console.log(
-        `R$ ${Number(loggiExpress.price || 0).toFixed(2)}`
-      );
-
-      console.log("");
-      console.log("RESPOSTA COMPLETA DA LOGGI EXPRESS:");
-      console.log(
-        JSON.stringify(loggiExpress, null, 2)
-      );
-
-    } else {
-
-      console.log("❌ LOGGI EXPRESS NÃO FOI ENCONTRADO.");
-
-      console.log("");
-      console.log("Os serviços retornados foram:");
-
-      fretes.forEach(frete => {
-        console.log(
-          `- ID: ${frete.id} | ${frete.company?.name || "Sem transportadora"} | ${frete.name || "Sem nome"} | R$ ${Number(frete.price || 0).toFixed(2)}`
+    // =====================================================
+    // 15. ENVIAR E-MAIL DE RASTREIO AO CLIENTE
+    // =====================================================
+    if (codigoRastreio) {
+      try {
+        await enviarEmailRastreio(
+          pedidoData.email,
+          pedidoData.nome,
+          codigoRastreio,
+          linkRastreio
         );
-      });
+      } catch (errEmail) {
+        console.error("❌ Erro ao enviar e-mail de rastreio:", errEmail.message);
+      }
+    } else {
+      console.log("⚠️ Etiqueta gerada mas rastreio ainda não disponível — considere reconsultar mais tarde.");
     }
 
-    // =====================================================
-    // 12. FINALIZAÇÃO DO TESTE
-    // =====================================================
-    console.log("");
     console.log("==========================================");
-    console.log("🛑 TESTE DE COTAÇÃO FINALIZADO");
+    console.log(`✅ ENVIO FINALIZADO PARA O PEDIDO #${pedidoId}`);
     console.log("==========================================");
-
-    console.log(
-      "⚠️ NENHUM CARRINHO FOI CRIADO."
-    );
-
-    console.log(
-      "⚠️ NENHUM CHECKOUT FOI REALIZADO."
-    );
-
-    console.log(
-      "⚠️ NENHUMA ETIQUETA FOI GERADA."
-    );
-
-    console.log(
-      "⚠️ NENHUM PEDIDO FOI ALTERADO PARA ENVIADO."
-    );
-
-    console.log("==========================================");
-    console.log("");
 
     return {
       success: true,
       pedidoId,
-      quantidadeFretes: fretes.length,
-      loggiExpress: loggiExpress
-        ? {
-            id: loggiExpress.id,
-            company: loggiExpress.company?.name,
-            name: loggiExpress.name,
-            price: loggiExpress.price
-          }
-        : null
+      cartItemId,
+      codigoRastreio
     };
 
   } catch (error) {
-
     console.error("");
     console.error("==========================================");
     console.error("❌ ERRO AO CONSULTAR MELHOR ENVIO");
     console.error("==========================================");
-
-    console.error(
-      error.response?.data ||
-      error.message ||
-      error
-    );
-
+    console.error(error.response?.data || error.message || error);
     console.error("==========================================");
     console.error("");
 
@@ -492,7 +469,8 @@ export async function mercadoPagoWebhook(req, res) {
             auth: { 
               user: process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com", 
               pass: process.env.SMTP_PASS || process.env.EMAIL_PASS 
-            }
+            },
+            family: 4,
           });
 
           // GARANTIA: Se a variável falhar, envia para o seu e-mail principal
