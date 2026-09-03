@@ -14,7 +14,7 @@ export const calcularFrete = async (req, res) => {
       width: 12,
       height: 20,
       length: 10,
-      weight: p.pesoEmGramas / 1000, // 🔥 Melhor Envio usa KG
+      weight: p.pesoEmGramas / 1000, 
       insurance_value: 30,
       quantity: p.quantidade,
     }));

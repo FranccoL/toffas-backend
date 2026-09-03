@@ -5,7 +5,7 @@ const router = express.Router();
 
 router.post("/send-email", async (req, res) => {
   try {
-    // Chama a função unificada que criamos
+    
     await enviarEmailAluguel(req.body);
     res.status(200).json({ message: "E-mail enviado com sucesso!" });
   } catch (error) {

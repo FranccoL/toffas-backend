@@ -5,6 +5,26 @@ import nodemailer from "nodemailer";
 export async function criarPedido(req, res) {
   const { cliente, itens, cupom } = req.body;
   const freteObj = req.body.frete || {};
+
+  // ==========================================
+  // VALIDAÇÃO DOS DADOS DO CLIENTE
+  // ==========================================
+
+  if (!cliente) {
+    return res.status(400).json({
+      error: "Dados do cliente não informados."
+    });
+  }
+
+  // Remove pontos, traços e qualquer outro caractere
+  const cpfNumeros = String(cliente.cpf || "").replace(/\D/g, "");
+
+  // CPF precisa ter exatamente 11 números
+  if (cpfNumeros.length !== 11) {
+    return res.status(400).json({
+      error: "CPF inválido ou não informado."
+    });
+  }
  
   let freteValor = Number(String(freteObj.valor).replace(",", ".")) || 0;
   const freteMetodo = freteObj.metodo || null;
@@ -16,23 +36,69 @@ export async function criarPedido(req, res) {
     await connection.beginTransaction();
  
     // 1. BUSCAR OU CRIAR CLIENTE
-    const [clienteExistente] = await connection.query(
-      "SELECT id FROM clientes WHERE email = ?",
-      [cliente.email]
-    );
- 
-    let clienteId;
-    if (clienteExistente.length) {
-      clienteId = clienteExistente[0].id;
-    } else {
-      const [novoCliente] = await connection.query(
-        `INSERT INTO clientes (nome, email, telefone, cep, endereco, numero, complemento, bairro, cidade, estado)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [cliente.nome, cliente.email, cliente.telefone, cliente.cep, cliente.endereco, cliente.numero, cliente.complemento || "", cliente.bairro, cliente.cidade, cliente.estado]
-      );
-      clienteId = novoCliente.insertId;
-    }
- 
+   
+const [clienteExistente] = await connection.query(
+  "SELECT id FROM clientes WHERE email = ?",
+  [cliente.email]
+);
+
+let clienteId;
+
+if (clienteExistente.length) {
+  // Cliente já existe: atualiza os dados
+  clienteId = clienteExistente[0].id;
+
+  await connection.query(
+    `UPDATE clientes
+     SET nome = ?,
+       cpf = ?,
+       telefone = ?,
+       cep = ?,
+       endereco = ?,
+       numero = ?,
+       complemento = ?,
+       bairro = ?,
+       cidade = ?,
+       estado = ?
+     WHERE id = ?`,
+    [
+      cliente.nome,
+    cpfNumeros,
+    cliente.telefone,
+    cliente.cep,
+    cliente.endereco,
+    cliente.numero,
+    cliente.complemento || "",
+    cliente.bairro,
+    cliente.cidade,
+    cliente.estado,
+    clienteId
+    ]
+  );
+
+} else {
+  // Cliente novo: salva todos os dados, incluindo CPF
+  const [novoCliente] = await connection.query(
+    `INSERT INTO clientes
+     (nome, email, cpf, telefone, cep, endereco, numero, complemento, bairro, cidade, estado)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      cliente.nome,
+    cliente.email,
+    cpfNumeros,
+    cliente.telefone,
+    cliente.cep,
+    cliente.endereco,
+    cliente.numero,
+    cliente.complemento || "",
+    cliente.bairro,
+    cliente.cidade,
+    cliente.estado
+    ]
+  );
+
+  clienteId = novoCliente.insertId;
+}
     // 2. BUSCAR PRODUTOS E CALCULAR SUBTOTAL
     const ids = itens.map(i => i.id);
     const [produtosBanco] = await connection.query(`SELECT id, nome, preco FROM produtos WHERE id IN (?)`, [ids]);
@@ -87,7 +153,6 @@ export async function criarPedido(req, res) {
     // AJUSTE PARA O MERCADO PAGO (FRETE E DESCONTO)
     // ============================================================
     
-    // Se houver desconto, aplicamos ele proporcionalmente nos itens
     if (desconto > 0 && subtotal > 0) {
       const fatorDesconto = (subtotal - desconto) / subtotal;
       produtosParaMP.forEach(item => {
@@ -95,15 +160,16 @@ export async function criarPedido(req, res) {
       });
     }
 
-    // Adiciona o Frete como um item separado para o Mercado Pago
     if (freteValor > 0) {
       produtosParaMP.push({
         title: `Frete (${freteMetodo || 'Envio'})`,
         quantity: 1,
-        unit_price: freteValor,
+        unit_price: Number(freteValor.toFixed(2)),
         currency_id: "BRL"
       });
     }
+
+    const produtosValidados = produtosParaMP.filter(item => item.unit_price > 0);
  
     // 4. CRIAR PEDIDO NO BANCO
     const [pedidoResult] = await connection.query(
@@ -125,11 +191,24 @@ export async function criarPedido(req, res) {
     await connection.commit();
  
     // 5. GERAR LINK NO MERCADO PAGO
+    // Forçando a URL de notificação para garantir que o MP encontre o servidor
+    const backendUrl = "https://toffas-backend.onrender.com";
+    const notificationUrl = `${backendUrl}/webhook/mercadopago`;
+
+    console.log(`🔗 Enviando Notification URL para o MP: ${notificationUrl}` );
+
     const mpPreference = {
-      items: produtosParaMP,
-      payer: { name: cliente.nome, email: cliente.email },
+      items: produtosValidados,
+      payer: {
+  name: cliente.nome,
+  email: cliente.email,
+  identification: {
+    type: "CPF",
+    number: cliente.cpf.replace(/\D/g, "")
+  }
+},
       external_reference: String(pedidoId),
-      notification_url: `${process.env.BACKEND_URL}/webhook/mercadopago`,
+      notification_url: notificationUrl,
       back_urls: {
         success: `${process.env.FRONTEND_URL}/pedido/sucesso`,
         failure: `${process.env.FRONTEND_URL}/pedido/falha`,
@@ -151,18 +230,21 @@ export async function criarPedido(req, res) {
       try {
         const emailTransporter = nodemailer.createTransport({
           service: "gmail",
-          auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+          auth: { 
+            user: process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com", 
+            pass: process.env.SMTP_PASS || process.env.EMAIL_PASS 
+          }
         });
-        const destinatario = process.env.RECIPIENT_EMAIL || process.env.EMAIL_USER;
+        const destinatario = process.env.RECIPIENT_EMAIL || process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com";
         if (destinatario) {
           await emailTransporter.sendMail({
-            from: `"Toffa's Coffee" <${process.env.EMAIL_USER}>`,
+            from: `"Toffa's Coffee" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'toffascoffee@gmail.com'}>`,
             to: destinatario,
             subject: `Novo pedido #${pedidoId} iniciado`,
             html: `<p>Um novo pedido de R$ ${total.toFixed(2)} foi iniciado no site.</p>`
           });
         }
-      } catch (err) { console.error("Erro e-mail background:", err); }
+      } catch (err) { console.error("❌ Erro e-mail background:", err.message); }
     })();
  
     return res.status(201).json({
@@ -173,7 +255,7 @@ export async function criarPedido(req, res) {
  
   } catch (error) {
     if (connection) await connection.rollback();
-    console.error("Erro ao criar pedido:", error.message);
+    console.error("❌ Erro ao criar pedido:", error.response?.data || error.message);
     return res.status(500).json({ error: error.message });
   } finally {
     if (connection) connection.release();
