@@ -2,12 +2,21 @@ import nodemailer from "nodemailer";
 
 // Configuração única do transportador (Gmail)
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: process.env.SMTP_HOST || "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  requireTLS: true,
+
   auth: {
-    user: process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com",
+    user: process.env.SMTP_USER || process.env.EMAIL_USER,
     pass: process.env.SMTP_PASS || process.env.EMAIL_PASS,
   },
+
   family: 4,
+
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
+  socketTimeout: 20000,
 });
 
 // ============================================================
@@ -77,15 +86,14 @@ export async function enviarEmailRastreio(email, nome, codigo, link) {
 // ============================================================
 
 export async function enviarEmailAluguel(dados) {
-  const { nome, empresa, telefone, email, mensagem, tipo } = dados;
-  
-  // GARANTIA: Se a variável falhar, envia para o seu e-mail principal
+  const { nome, responsavel, empresa, telefone, email, mensagem, tipo } = dados;
+  const nomeContato = nome || responsavel || 'Não informado';
   const destinatario = process.env.RECIPIENT_EMAIL || process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com";
 
   const html = `
     <div style="font-family: Arial; padding:20px; border:1px solid #eee;">
       <h2 style="color:#d35400;">Novo Pedido de Orçamento: ${tipo || 'Aluguel de Máquina'}</h2>
-      <p><strong>Nome:</strong> ${nome}</p>
+      <p><strong>Nome:</strong> ${nomeContato}</p>
       <p><strong>Empresa:</strong> ${empresa || 'Não informada'}</p>
       <p><strong>Telefone:</strong> ${telefone}</p>
       <p><strong>E-mail do Cliente:</strong> ${email}</p>
@@ -97,7 +105,7 @@ ${mensagem || 'Sem mensagem'}</p>
     await transporter.sendMail({
       from: `"Site Toffa's" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'toffascoffee@gmail.com'}>`,
       to: destinatario,
-      subject: `SOLICITAÇÃO DE ALUGUEL - ${nome}`,
+      subject: `SOLICITAÇÃO DE ALUGUEL - ${nomeContato}`,
       html
     });
     console.log(`✅ Notificação de aluguel enviada para o dono: ${destinatario}`);
