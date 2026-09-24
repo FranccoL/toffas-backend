@@ -171,7 +171,7 @@ async function criarEnvioMelhorEnvio(pedidoId) {
       email: "contato@toffascoffee.com.br",
       document: documentoRemetente,
       address: "Rua Giacinto Tognato",
-      number: "63",
+      number: "67",
       district: "Baeta Neves",
       city: "São Bernardo do Campo",
       state_abbr: "SP",
