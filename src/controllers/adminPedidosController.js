@@ -10,14 +10,13 @@ export async function atualizarStatusPedido(req, res) {
     return res.status(400).json({ error: "Status inválido" });
   }
 
-  let query = "";
-  let params = [];
+  let query;
+  let params;
 
   if (status === "ENVIADO") {
     query = `
       UPDATE pedidos
-      SET status = ?,
-          data_envio = NOW()
+      SET status = ?
       WHERE id = ?
         AND status = 'PAGO'
     `;
@@ -27,8 +26,7 @@ export async function atualizarStatusPedido(req, res) {
   if (status === "ENTREGUE") {
     query = `
       UPDATE pedidos
-      SET status = ?,
-          data_entrega = NOW()
+      SET status = ?
       WHERE id = ?
         AND status = 'ENVIADO'
     `;

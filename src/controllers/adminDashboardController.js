@@ -12,12 +12,12 @@ export async function dashboardAdmin(req, res) {
         SUM(CASE WHEN status = 'ENTREGUE' THEN 1 ELSE 0 END) AS entregues,
 
         COALESCE(SUM(CASE WHEN status IN ('PAGO','ENVIADO','ENTREGUE')
-            AND DATE(criado_em) = CURDATE()
+            AND DATE(data_criacao) = CURDATE()
           THEN total ELSE 0 END), 0) AS faturamento_hoje,
 
         COALESCE(SUM(CASE WHEN status IN ('PAGO','ENVIADO','ENTREGUE')
-            AND MONTH(criado_em) = MONTH(CURDATE())
-            AND YEAR(criado_em) = YEAR(CURDATE())
+            AND MONTH(data_criacao) = MONTH(CURDATE())
+            AND YEAR(data_criacao) = YEAR(CURDATE())
           THEN total ELSE 0 END), 0) AS faturamento_mes
 
       FROM pedidos
@@ -29,7 +29,7 @@ export async function dashboardAdmin(req, res) {
         c.nome AS cliente,
         p.total,
         p.status,
-        p.criado_em
+        p.data_criacao AS criado_em
       FROM pedidos p
       JOIN clientes c ON c.id = p.cliente_id
       ORDER BY p.id DESC

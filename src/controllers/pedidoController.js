@@ -1,6 +1,5 @@
 import pool from "../config/db.js";
 import axios from "axios";
-import nodemailer from "nodemailer";
  
 export async function criarPedido(req, res) {
   const { cliente, itens, cupom } = req.body;
@@ -224,29 +223,6 @@ if (clienteExistente.length) {
      );
  
     await pool.query(`UPDATE pedidos SET mercado_pago_preference_id = ? WHERE id = ?`, [mpData.id, pedidoId]);
- 
-    // 6. NOTIFICAÇÃO AO DONO (EM SEGUNDO PLANO)
-    (async () => {
-      try {
-        const emailTransporter = nodemailer.createTransport({
-          service: "gmail",
-          auth: { 
-            user: process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com", 
-            pass: process.env.SMTP_PASS || process.env.EMAIL_PASS 
-          },
-          family: 4,
-        });
-        const destinatario = process.env.RECIPIENT_EMAIL || process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com";
-        if (destinatario) {
-          await emailTransporter.sendMail({
-            from: `"Toffa's Coffee" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'toffascoffee@gmail.com'}>`,
-            to: destinatario,
-            subject: `Novo pedido #${pedidoId} iniciado`,
-            html: `<p>Um novo pedido de R$ ${total.toFixed(2)} foi iniciado no site.</p>`
-          });
-        }
-      } catch (err) { console.error("❌ Erro e-mail background:", err.message); }
-    })();
  
     return res.status(201).json({
       status: "ok",

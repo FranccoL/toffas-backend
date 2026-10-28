@@ -1,7 +1,10 @@
 import pool from "../config/db.js";
 import axios from "axios";
-import { enviarEmailConfirmacaoPedido, enviarEmailRastreio } from "../services/emailService.js";
-import nodemailer from "nodemailer";
+import {
+  enviarEmailConfirmacaoPedido,
+  enviarEmailRastreio,
+  enviarEmailVendaAdmin,
+} from "../services/emailService.js";
 
 // ==========================================
 // FUNÇÃO: BUSCAR PAGAMENTO MERCADO PAGO
@@ -320,7 +323,9 @@ async function criarEnvioMelhorEnvio(pedidoId) {
     // =====================================================
     console.log("🔎 Buscando código de rastreio...");
 
-    const rastreioResp = await axios.get(
+    let rastreioResp;
+    for (let tentativa = 1; tentativa <= 5; tentativa++) {
+      rastreioResp = await axios.get(
       `https://melhorenvio.com.br/api/v2/me/orders/${cartItemId}`,
       {
         headers: {
@@ -328,7 +333,12 @@ async function criarEnvioMelhorEnvio(pedidoId) {
           Accept: "application/json"
         }
       }
-    );
+      );
+
+      if (rastreioResp.data?.tracking || tentativa === 5) break;
+      console.log(`Codigo de rastreio ainda indisponivel; nova consulta em 3 segundos (${tentativa}/5).`);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
 
     const codigoRastreio = rastreioResp.data?.tracking || null;
     const linkRastreio = codigoRastreio
@@ -359,7 +369,7 @@ async function criarEnvioMelhorEnvio(pedidoId) {
           linkRastreio
         );
       } catch (errEmail) {
-        console.error("❌ Erro ao enviar e-mail de rastreio:", errEmail.message);
+        console.error(`Erro ao enviar rastreio do pedido #${pedidoId}:`, errEmail.message);
       }
     } else {
       console.log("⚠️ Etiqueta gerada mas rastreio ainda não disponível — considere reconsultar mais tarde.");
@@ -420,23 +430,25 @@ export async function mercadoPagoWebhook(req, res) {
     if (!pedidoAtual.length)
       return res.status(404).json({ error: "Pedido inexistente no banco de dados" });
 
-    // Evita processar duas vezes o mesmo pedido
-    if (pedidoAtual[0].status === "PAGO" || pedidoAtual[0].status === "ENVIADO") {
-      console.log(`⚠️ Pedido #${pedidoId} já está marcado como PAGO/ENVIADO.`);
-      return res.status(200).json({ already_processed: true });
-    }
-
     if (status === "approved") {
       console.log(`✅ Pagamento aprovado para Pedido #${pedidoId}. Iniciando processos...`);
-      
-      // 1. Atualiza status para PAGO
-      await pool.query(
-        `UPDATE pedidos SET status = ?, mercado_pago_payment_id = ? WHERE id = ?`,
-        ["PAGO", paymentId, pedidoId]
-      );
+
+      const jaProcessado = ["PAGO", "ENVIADO"].includes(pedidoAtual[0].status);
+      let iniciarEnvio = false;
+
+      if (!jaProcessado) {
+        const [atualizacao] = await pool.query(
+          `UPDATE pedidos
+           SET status = ?, mercado_pago_payment_id = ?
+           WHERE id = ? AND status NOT IN ('PAGO', 'ENVIADO')`,
+          ["PAGO", paymentId, pedidoId]
+        );
+        iniciarEnvio = atualizacao.affectedRows > 0;
+      }
+
+      let falhaEnvioEmail = false;
 
       // 2. Busca dados completos para os e-mails
-            // 2. Busca dados completos para os e-mails (agora com todos os campos do cliente)
       const [pedidoCompleto] = await pool.query(
         `SELECT p.*, 
                 c.nome, c.email, c.telefone, c.cpf,
@@ -447,125 +459,83 @@ export async function mercadoPagoWebhook(req, res) {
         [pedidoId]
       );
 
-      if (pedidoCompleto.length) {
+      if (!pedidoCompleto.length) {
+        throw new Error(`Pedido #${pedidoId} não encontrado para enviar as notificações.`);
+      }
+
+      if (iniciarEnvio) {
         const pData = pedidoCompleto[0];
         const [itens] = await pool.query("SELECT * FROM pedido_itens WHERE pedido_id = ?", [pedidoId]);
 
-        // 3. Envia e-mail de CONFIRMAÇÃO DE PAGAMENTO ao cliente IMEDIATAMENTE
+        const cliente = {
+          nome: pData.nome,
+          email: pData.email,
+          telefone: pData.telefone,
+          cpf: pData.cpf,
+          cep: pData.cep,
+          endereco: pData.endereco,
+          numero: pData.numero,
+          complemento: pData.complemento,
+          bairro: pData.bairro,
+          cidade: pData.cidade,
+          estado: pData.estado,
+        };
+
+        // 3. Confirma o pagamento ao cliente.
         try {
-          console.log(`📧 Tentando enviar e-mail de confirmação para o cliente: ${pData.email}`);
           await enviarEmailConfirmacaoPedido({
             email: pData.email,
             nome: pData.nome,
             pedidoId,
             itens,
+            total: Number(pData.total),
+            cliente,
+          });
+        } catch (emailCliErr) {
+          falhaEnvioEmail = true;
+          console.error(`Erro ao enviar confirmacao do pedido #${pedidoId} ao cliente:`, emailCliErr.message);
+        }
+
+        // 4. Notifica o responsavel pela loja sobre a venda aprovada.
+        try {
+          await enviarEmailVendaAdmin({
+            cliente,
+            pedidoId,
+            itens,
+            pagamento,
             subtotal: Number(pData.subtotal),
             freteValor: Number(pData.frete_valor),
             freteMetodo: pData.frete_metodo,
-            total: Number(pData.total)
+            cupom: pData.cupom_codigo,
+            total: Number(pData.total),
           });
-        } catch (emailCliErr) {
-          console.error("❌ Erro ao enviar email de confirmação ao cliente:", emailCliErr.message);
-        }
-
-                // 4. Envia e-mail de NOTIFICAÇÃO DE VENDA para o DONO (Você) - COMPLETO
-        try {
-          const emailTransporter = nodemailer.createTransport({
-            service: "gmail",
-            auth: { 
-              user: process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com", 
-              pass: process.env.SMTP_PASS || process.env.EMAIL_PASS 
-            },
-            family: 4,
-          });
-
-          const destinatario = process.env.RECIPIENT_EMAIL || process.env.SMTP_USER || process.env.EMAIL_USER || "toffascoffee@gmail.com";
-
-          // Forma de pagamento vinda do Mercado Pago
-          const metodoPagamento = pagamento.payment_method_id || "Não informado";
-          const tipoPagamento = pagamento.payment_type_id || "";
-          const parcelas = pagamento.installments || 1;
-
-          const itensHtml = itens.map(item => `
-            <tr>
-              <td style="padding:6px; border-bottom:1px solid #eee;">${item.nome_produto}${item.tamanho ? ` (${item.tamanho})` : ""}</td>
-              <td style="padding:6px; border-bottom:1px solid #eee; text-align:center;">${item.quantidade}</td>
-              <td style="padding:6px; border-bottom:1px solid #eee; text-align:right;">R$ ${Number(item.preco).toFixed(2)}</td>
-            </tr>`).join("");
-
-          const html = `
-            <div style="font-family: Arial, sans-serif; max-width:650px; margin:0 auto;">
-              <div style="background:#000; color:#fff; padding:16px; text-align:center;">
-                <h2 style="margin:0;">🛒 Nova Venda - Pedido #${pedidoId}</h2>
-              </div>
-
-              <div style="padding:20px; border:1px solid #eee;">
-                <h3>👤 Dados do Cliente</h3>
-                <p>
-                  <strong>Nome:</strong> ${pData.nome}<br>
-                  <strong>E-mail:</strong> ${pData.email}<br>
-                  <strong>Telefone:</strong> ${pData.telefone}<br>
-                  <strong>CPF:</strong> ${pData.cpf}
-                </p>
-
-                <h3>📍 Endereço de Entrega</h3>
-                <p>
-                  ${pData.endereco}, ${pData.numero} ${pData.complemento ? "- " + pData.complemento : ""}<br>
-                  ${pData.bairro} - ${pData.cidade}/${pData.estado}<br>
-                  CEP: ${pData.cep}
-                </p>
-
-                <h3>💳 Pagamento</h3>
-                <p>
-                  <strong>ID Mercado Pago:</strong> ${paymentId}<br>
-                  <strong>Método:</strong> ${metodoPagamento} (${tipoPagamento})<br>
-                  <strong>Parcelas:</strong> ${parcelas}x
-                </p>
-
-                <h3>📦 Itens do Pedido</h3>
-                <table style="width:100%; border-collapse:collapse;">
-                  <thead>
-                    <tr style="background:#f8f8f8;">
-                      <th style="text-align:left; padding:6px;">Produto</th>
-                      <th style="padding:6px;">Qtd</th>
-                      <th style="text-align:right; padding:6px;">Preço</th>
-                    </tr>
-                  </thead>
-                  <tbody>${itensHtml}</tbody>
-                </table>
-
-                <h3>💰 Resumo Financeiro</h3>
-                <p>
-                  Subtotal: R$ ${Number(pData.subtotal).toFixed(2)}<br>
-                  Frete (${pData.frete_metodo || "N/A"}): R$ ${Number(pData.frete_valor).toFixed(2)}<br>
-                  ${pData.cupom_codigo ? `Cupom aplicado: ${pData.cupom_codigo}<br>` : ""}
-                  <strong style="font-size:18px;">Total Pago: R$ ${Number(pData.total).toFixed(2)}</strong>
-                </p>
-              </div>
-            </div>`;
-
-          await emailTransporter.sendMail({
-            from: `"Toffa's Coffee" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'toffascoffee@gmail.com'}>`,
-            to: destinatario,
-            subject: `💰 VENDA REALIZADA - Pedido #${pedidoId} - R$ ${Number(pData.total).toFixed(2)}`,
-            html
-          });
-          console.log(`📧 Notificação completa de venda enviada para o dono: ${destinatario}`);
         } catch (errDono) {
-          console.error("❌ Erro ao notificar dono:", errDono.message);
+          falhaEnvioEmail = true;
+          console.error(`Erro ao notificar venda do pedido #${pedidoId}:`, errDono.message);
         }
       }
 
-      // 5. Processa o Melhor Envio em background (gera rastreio e envia 2º email)
-      criarEnvioMelhorEnvio(pedidoId).catch(err => {
-        console.error("❌ Erro ao processar Melhor Envio:", err.message);
-      });
+      if (iniciarEnvio) {
+        // Processa o Melhor Envio sem bloquear a resposta do webhook.
+        criarEnvioMelhorEnvio(pedidoId).catch(err => {
+          console.error("❌ Erro ao processar Melhor Envio:", err.message);
+        });
+      }
+
+      if (falhaEnvioEmail) {
+        return res.status(500).json({ error: "Falha ao enviar notificacao do pedido" });
+      }
     } else if (status === "cancelled" || status === "rejected") {
+      if (["PAGO", "ENVIADO"].includes(pedidoAtual[0].status)) {
+        return res.status(200).json({ already_processed: true });
+      }
       console.log(`❌ Pagamento ${paymentId} cancelado/rejeitado.`);
       await pool.query(
         `UPDATE pedidos SET status = ?, mercado_pago_payment_id = ? WHERE id = ?`,
         ["CANCELADO", paymentId, pedidoId]
       );
+    } else if (["PAGO", "ENVIADO"].includes(pedidoAtual[0].status)) {
+      return res.status(200).json({ already_processed: true });
     }
 
     return res.status(200).json({ received: true });
